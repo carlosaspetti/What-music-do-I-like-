@@ -850,8 +850,28 @@
   async function loadArtists(token, range) {
     setLoading(true);
     try {
+      // Step 1: get top artists (ranked order)
       const data = await apiFetch(token, `/me/top/artists?limit=20&time_range=${range}`);
-      renderArtists(data.items || []);
+      const topArtists = data.items || [];
+
+      if (topArtists.length === 0) {
+        renderArtists([]);
+        return;
+      }
+
+      // Step 2: enrich with full artist data (genres, popularity, followers)
+      const ids = topArtists.map(a => a.id).join(',');
+      const enriched = await apiFetch(token, `/artists?ids=${ids}`);
+      const artistMap = {};
+      (enriched.artists || []).forEach(a => { if (a) artistMap[a.id] = a; });
+
+      // Merge: keep ranking order from top artists, use enriched data for details
+      const merged = topArtists.map(a => ({
+        ...a,
+        ...(artistMap[a.id] || {}),
+      }));
+
+      renderArtists(merged);
     } catch(e) {
       showError(e.message);
     } finally {
