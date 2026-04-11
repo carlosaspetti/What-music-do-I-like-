@@ -401,15 +401,28 @@
       });
     }
 
-    // ── FIX: removed redundant /v1/artists enrichment call ──
-    // /me/top/artists already returns full artist objects including
-    // genres, popularity, followers, and images — no second call needed.
     async function loadArtists(token, range) {
       setLoading(true);
       try {
+        // Step 1: get top artists in ranked order
         const data = await apiFetch(token, `/me/top/artists?limit=20&time_range=${range}`);
         const topArtists = data.items || [];
-        renderArtists(topArtists);
+        if (topArtists.length === 0) { renderArtists([]); return; }
+
+        // Step 2: enrich with full artist data (genres, popularity, followers are
+        // not always populated in the top-artists response)
+        try {
+          const ids = topArtists.map(a => a.id).join(',');
+          const enriched = await apiFetch(token, `/artists?ids=${ids}`);
+          const artistMap = {};
+          (enriched.artists || []).forEach(a => { if (a) artistMap[a.id] = a; });
+          // Merge: ranking order from step 1, full data from step 2
+          const merged = topArtists.map(a => ({ ...a, ...(artistMap[a.id] || {}) }));
+          renderArtists(merged);
+        } catch(_) {
+          // Enrichment failed — show artists without genres/followers rather than blank
+          renderArtists(topArtists);
+        }
       } catch(e) {
         showError(e.message);
       } finally {
