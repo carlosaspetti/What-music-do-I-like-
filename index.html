@@ -362,18 +362,14 @@
       document.getElementById('loading').style.display = on ? 'flex' : 'none';
       document.getElementById('error-msg').style.display = 'none';
     }
-    function formatFollowers(n) {
-      if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + 'M';
-      if (n >= 1_000) return Math.round(n / 1_000) + 'K';
-      return n.toString();
-    }
-    function renderArtists(artists) {
+    function renderArtists(artists, trackCountMap = {}) {
       const list = document.getElementById('artists-list');
       list.innerHTML = '';
+      const maxTracks = Math.max(1, ...Object.values(trackCountMap));
       artists.slice(0, 20).forEach((artist, i) => {
         const img = artist.images?.[0]?.url;
-        const genres = artist.genres?.slice(0, 3).join(' · ') || 'no genres listed';
-        const pop = artist.popularity || 0;
+        const trackCount = trackCountMap[artist.id] || 0;
+        const barPct = Math.round((trackCount / maxTracks) * 100);
         const row = document.createElement('div');
         row.className = 'artist-row';
         row.innerHTML = `
@@ -383,16 +379,15 @@
           </div>
           <div class="artist-info">
             <div class="artist-name">${artist.name}</div>
-            <div class="artist-genres">${genres}</div>
+            <div class="artist-genres">#${i+1} in your top artists</div>
           </div>
           <div class="artist-pop">
-            <div class="pop-bar-wrap"><div class="pop-bar" style="width:0%" data-pop="${pop}"></div></div>
-            <div class="pop-label">popularity</div>
+            <div class="pop-bar-wrap"><div class="pop-bar" style="width:0%" data-pop="${barPct}"></div></div>
+            <div class="pop-label">top tracks</div>
           </div>
-          <div class="artist-followers">${formatFollowers(artist.followers?.total || 0)}<br><span style="font-size:9px; letter-spacing:0.06em; color:var(--muted)">followers</span></div>
+          <div class="artist-followers">${trackCount}<br><span style="font-size:9px; letter-spacing:0.06em; color:var(--muted)">in your top 50</span></div>
         `;
         list.appendChild(row);
-        // staggered reveal
         setTimeout(() => {
           row.classList.add('visible');
           const bar = row.querySelector('.pop-bar');
@@ -404,25 +399,23 @@
     async function loadArtists(token, range) {
       setLoading(true);
       try {
-        // Step 1: get top artists in ranked order
-        const data = await apiFetch(token, `/me/top/artists?limit=20&time_range=${range}`);
-        const topArtists = data.items || [];
-        if (topArtists.length === 0) { renderArtists([]); return; }
+        // Fetch top artists and top tracks in parallel — both covered by user-top-read scope
+        const [artistData, trackData] = await Promise.all([
+          apiFetch(token, `/me/top/artists?limit=20&time_range=${range}`),
+          apiFetch(token, `/me/top/tracks?limit=50&time_range=${range}`)
+        ]);
+        const topArtists = artistData.items || [];
+        if (topArtists.length === 0) { renderArtists([], {}); return; }
 
-        // Step 2: enrich with full artist data (genres, popularity, followers are
-        // not always populated in the top-artists response)
-        try {
-          const ids = topArtists.map(a => a.id).join(',');
-          const enriched = await apiFetch(token, `/artists?ids=${ids}`);
-          const artistMap = {};
-          (enriched.artists || []).forEach(a => { if (a) artistMap[a.id] = a; });
-          // Merge: ranking order from step 1, full data from step 2
-          const merged = topArtists.map(a => ({ ...a, ...(artistMap[a.id] || {}) }));
-          renderArtists(merged);
-        } catch(_) {
-          // Enrichment failed — show artists without genres/followers rather than blank
-          renderArtists(topArtists);
-        }
+        // Count how many of your top 50 tracks belong to each artist
+        const trackCountMap = {};
+        (trackData.items || []).forEach(track => {
+          track.artists.forEach(a => {
+            trackCountMap[a.id] = (trackCountMap[a.id] || 0) + 1;
+          });
+        });
+
+        renderArtists(topArtists, trackCountMap);
       } catch(e) {
         showError(e.message);
       } finally {
