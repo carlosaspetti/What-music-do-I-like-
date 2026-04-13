@@ -112,7 +112,7 @@
     /* ── ARTISTS GRID ── */
     .artists-list { display: flex; flex-direction: column; gap: 2px; }
     .artist-row {
-      display: grid; grid-template-columns: 52px 56px 1fr auto auto;
+      display: grid; grid-template-columns: 52px 56px 1fr;
       align-items: center; gap: 0; padding: 0;
       background: var(--card-bg); border: 1px solid var(--border); border-radius: 2px;
       overflow: hidden; transition: all 0.2s ease; cursor: default;
@@ -362,14 +362,11 @@
       document.getElementById('loading').style.display = on ? 'flex' : 'none';
       document.getElementById('error-msg').style.display = 'none';
     }
-    function renderArtists(artists, trackCountMap = {}) {
+    function renderArtists(artists) {
       const list = document.getElementById('artists-list');
       list.innerHTML = '';
-      const maxTracks = Math.max(1, ...Object.values(trackCountMap));
       artists.slice(0, 20).forEach((artist, i) => {
         const img = artist.images?.[0]?.url;
-        const trackCount = trackCountMap[artist.id] || 0;
-        const barPct = Math.round((trackCount / maxTracks) * 100);
         const row = document.createElement('div');
         row.className = 'artist-row';
         row.innerHTML = `
@@ -379,43 +376,18 @@
           </div>
           <div class="artist-info">
             <div class="artist-name">${artist.name}</div>
-            <div class="artist-genres">#${i+1} in your top artists</div>
           </div>
-          <div class="artist-pop">
-            <div class="pop-bar-wrap"><div class="pop-bar" style="width:0%" data-pop="${barPct}"></div></div>
-            <div class="pop-label">top tracks</div>
-          </div>
-          <div class="artist-followers">${trackCount}<br><span style="font-size:9px; letter-spacing:0.06em; color:var(--muted)">in your top 50</span></div>
         `;
         list.appendChild(row);
-        setTimeout(() => {
-          row.classList.add('visible');
-          const bar = row.querySelector('.pop-bar');
-          if (bar) setTimeout(() => { bar.style.width = bar.dataset.pop + '%'; }, 200);
-        }, i * 50);
+        setTimeout(() => { row.classList.add('visible'); }, i * 50);
       });
     }
 
     async function loadArtists(token, range) {
       setLoading(true);
       try {
-        // Fetch top artists and top tracks in parallel — both covered by user-top-read scope
-        const [artistData, trackData] = await Promise.all([
-          apiFetch(token, `/me/top/artists?limit=20&time_range=${range}`),
-          apiFetch(token, `/me/top/tracks?limit=50&time_range=${range}`)
-        ]);
-        const topArtists = artistData.items || [];
-        if (topArtists.length === 0) { renderArtists([], {}); return; }
-
-        // Count how many of your top 50 tracks belong to each artist
-        const trackCountMap = {};
-        (trackData.items || []).forEach(track => {
-          track.artists.forEach(a => {
-            trackCountMap[a.id] = (trackCountMap[a.id] || 0) + 1;
-          });
-        });
-
-        renderArtists(topArtists, trackCountMap);
+        const data = await apiFetch(token, `/me/top/artists?limit=20&time_range=${range}`);
+        renderArtists(data.items || []);
       } catch(e) {
         showError(e.message);
       } finally {
